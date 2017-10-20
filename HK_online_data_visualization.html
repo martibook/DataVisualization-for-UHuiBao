@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+
+<head>
+    <meta charset="UTF-8">
+    <title>香港地区在线用户实时位置</title>
+
+    <script type="text/javascript" src="http://libs.baidu.com/jquery/1.11.3/jquery.min.js"></script>
+    <script src="http://echarts.baidu.com/build/dist/echarts.js"></script>       <!-- 获得 AMD 环境 -->
+    <!--<script src="http://echarts.baidu.com/build/dist/echarts-all.js"></script>-->
+
+    <style>
+
+        html {
+            background: url("bg/bg2.jpg") no-repeat center center fixed;
+            -webkit-background-size: cover;
+            -moz-background-size: cover;
+            background-size: cover;
+        }
+
+        /* need specific width and height for map*/
+        #map {
+            width: 820px;
+            height: 655px;
+            position: absolute;
+            margin-left: -15px;
+            margin-top: 0px;
+        }
+
+        /* need specific width and height*/
+        #bar {
+            width: 540px;
+            height: 350px;
+            position: absolute;
+            margin-left: 810px;
+            margin-top: 305px;
+            z-index: -1;
+        }
+
+        #left_top {
+            width: 540px;
+            height: 300px;
+            position: absolute;
+            margin-left: 810px;
+            margin-top: 0px;
+            z-index: -1;
+        }
+
+        #label {
+            width: 180px;
+            height: 300px;
+            position: absolute;
+            margin-left: 0px;
+            margin-top: 0px;
+        }
+
+        #pie {
+            width: 355px;
+            height: 300px;
+            position: absolute;
+            margin-left: 185px;
+            margin-top: 0px;
+        }
+
+        #label1,#label2 {
+            width: 180px;
+            position: absolute;
+            background-color: rgba(150, 150, 150, 0.1);
+            text-align: center;
+        }
+
+        #label1 {
+            height: 145px;
+        }
+
+        #label2 {
+            height: 150px;
+            margin-top: 150px;
+        }
+
+        h1 {
+            color: #ffffff;
+            font-family: 微软雅黑;
+            font-size: 25px;
+            padding-left: 5px;
+            opacity: 0.9;
+        }
+
+        h2 {
+            color: rgba(200, 200, 200, 0.8);
+            font-family: 微软雅黑;
+            font-size: 20px;
+        }
+
+
+    </style>
+
+
+</head>
+<body>
+
+
+<div id="map"></div>
+<div id="bar"></div>
+<div id="left_top">
+    <div id="label">
+        <div id="label1">
+            <h1> 实时在线人数 </h1>
+            <h2> xxx </h2>
+        </div>
+        <div id="label2">
+            <h1> 实时流量总数 </h1>
+            <h2> xxxGB </h2>
+        </div>
+    </div>
+    <div id="pie"></div>
+</div>
+
+
+
+<script type="text/javascript">
+
+    // 仅更新部分数据会引起内存泄露, 所以先销毁 echart 对象再重新绘制, 因此需要全部更新
+
+    basic_ftcolor = 'rgba(200, 200, 200, 0.8)';
+    title_ftcolor = 'rgba(255, 255, 255, 0.9)';
+    title_font = 25;
+    module_bgcolor = 'rgba(150, 150, 150, 0.1)';
+    basic_red = 'rgba(255, 0, 0, 0.5)';
+    shine_red = 'rgba(255, 0, 0, 0.8)';
+    map_color = 'rgba(255, 255, 255, 0.15)';
+    basic_yellow = 'rgba(255, 255, 51, 0.8)';
+
+    update_interval = 30 * 1000; //  second * 1000
+
+
+    // 香港商圈平均停留时长（上一日） 与  香港商圈人流统计 (上一日)
+    var bar_pie_url = "http://big.uhuibao.com/uhuibao/api/home/init";
+
+    // 香港实时在线用户分布
+    var map_url = "http://big.uhuibao.com/uhuibao/api/user/thermodynamic_diagram?area_list=454";  //hongkong
+
+
+    local_map_data = "init_map_data.json";
+    local_bar_pie_data = "init_bar_pie_data.json";
+
+
+    //  require.config配置后就可以通过动态加载使用echarts
+    require.config({
+        paths: {
+            echarts: "http://echarts.baidu.com/build/dist"
+        }
+    });
+
+    require(
+        [
+            'echarts',
+            'echarts/chart/map',
+            'echarts/chart/bar',  // 使用柱状图就加载bar模块，按需加载
+            'echarts/chart/pie'
+        ],
+        function (echarts) {
+
+            //   自定义扩展图表类型：mapType = HK, 需在 require echarts 之后才能添加自定义图表
+            require('echarts/util/mapData/params').params.HK = {
+                // 实现回调函数
+                getGeoJson: function (callback) {
+                    $.getJSON('HK.json',callback);
+                }
+            };
+
+
+            var initCharts = function () {
+
+                // 地图加载过慢,所以初始化时使用本地数据
+                var initMap = function () {
+
+                    var map = echarts.init(document.getElementById('map'));
+
+                    // 传入不同参数  使用本地 或者 在线 数据是更新图表
+                    // 赋值式函数 与 声明式函数不同
+                    updateMapData = function(datasource) {
+
+                        $.get(datasource, function (datajson) {
+
+                            // 先销毁
+                            map.dispose();
+
+                            // 再新建
+                            map = echarts.init(document.getElementById('map'));
+
+                            var data = function extractData() {
+
+                                d = [];
+                                var data = datajson["data"];
+                                console.log(data.length);
+                                for(var i=0; i<data.length; ++i){
+                                    d.push({
+                                        name: '',
+                                        geoCoord: [data[i].lon, data[i].lat],
+                                        value: data[i].userNum
+                                    });
+                                }
+                                return d;
+                            }();
+
+                            var map_option = {
+
+                                backgroundColor: module_bgcolor,
+
+                                title: {
+                                    text: '香港地区实时在线用户',
+                                    x: 30,
+                                    y: 20,
+                                    textStyle : {
+                                        color : title_ftcolor,
+                                        fontFamily : '微软雅黑',
+                                        fontSize : title_font,
+                                    }
+                                },
+
+
+                                tooltip : {
+                                    show: true,
+                                    trigger: 'item',
+                                    formatter: '{b}'
+                                },
+
+                                series : [
+
+                                    {
+                                        name: 'users location',
+                                        roam: true,
+                                        hoverable: false,
+                                        type: 'map',
+                                        zlevel: 0,
+                                        z: 2,
+                                        mapType: 'HK', // 自定义扩展图表类型
+                                        // 自定义名称映射
+                                        nameMap: {
+                                            'Central and Western':'中西区',
+                                            'Eastern':'东区',
+                                            'Islands':'离岛',
+                                            'Kowloon City':'九龙城',
+                                            'Kwai Tsing':'葵青',
+                                            'Kwun Tong':'观塘',
+                                            'North':'北区',
+                                            'Sai Kung':'西贡',
+                                            'Sha Tin':'沙田',
+                                            'Sham Shui Po':'深水埗',
+                                            'Southern':'南区',
+                                            'Tai Po':'大埔',
+                                            'Tsuen Wan':'荃湾',
+                                            'Tuen Mun':'屯门',
+                                            'Wan Chai':'湾仔',
+                                            'Wong Tai Sin':'黄大仙',
+                                            'Yau Tsim Mong':'油尖旺',
+                                            'Yuen Long':'元朗'
+                                        },
+
+                                        itemStyle:{
+                                            normal: {
+                                                color: map_color,
+                                                label: {
+                                                    show: false,
+                                                    textStyle: {
+                                                        color: basic_ftcolor,
+                                                        fontSize: 16,
+                                                        fontStyle: 'oblique',
+                                                        fontWeight: 'lighter',
+                                                    }
+                                                }
+                                            },
+                                            emphasis: {
+                                                label: {
+                                                    show: true
+                                                }
+                                            }
+                                        },
+                                        data: [],
+                                        markPoint: {
+                                            symbol: 'diagmod',
+                                            symbolSize: 1,
+                                            large: true,
+                                            effect: {
+                                                show: true,
+                                                color: basic_yellow,
+                                                period: 5
+                                            },
+                                            label: {
+                                                normal: {
+                                                    show: false
+                                                }
+                                            },
+
+                                            data: data
+                                        }
+                                    },
+
+                                    // 用点标出商圈位置“中心”
+                                    {
+                                        name: "business circle",
+                                        type: "map",
+                                        zlevel: 0,
+                                        z: 4,
+                                        mapType: "HK",
+                                        nameMap: {
+                                            'Central and Western':'中西区',
+                                            'Eastern':'东区',
+                                            'Islands':'离岛',
+                                            'Kowloon City':'九龙城',
+                                            'Kwai Tsing':'葵青',
+                                            'Kwun Tong':'观塘',
+                                            'North':'北区',
+                                            'Sai Kung':'西贡',
+                                            'Sha Tin':'沙田',
+                                            'Sham Shui Po':'深水埗',
+                                            'Southern':'南区',
+                                            'Tai Po':'大埔',
+                                            'Tsuen Wan':'荃湾',
+                                            'Tuen Mun':'屯门',
+                                            'Wan Chai':'湾仔',
+                                            'Wong Tai Sin':'黄大仙',
+                                            'Yau Tsim Mong':'油尖旺',
+                                            'Yuen Long':'元朗'
+                                        },
+
+                                        data: [],
+                                        markPoint: {
+                                            symbol: 'circle',
+                                            symbolSize: 4,
+                                            itemStyle: {
+                                                normal: {
+                                                    color: shine_red
+                                                }
+                                            },
+                                            effect: {
+                                                show: true,
+                                                period: 8,
+                                                type: 'bounce',
+                                            },
+                                            data: [
+                                                {name: '迪士尼商圈', geoCoord: [113.95, 22.3]},
+                                                {name: '铜锣湾商圈', geoCoord: [114.18, 22.276]},
+                                                {name: '元朗商圈', geoCoord: [114.02, 22.448]},
+                                                {name: '上水商圈', geoCoord: [114.1435, 22.5]},
+                                                {name: '旺角商圈', geoCoord: [114.193, 22.317]},
+                                                {name: '葵湾商圈', geoCoord: [114.13, 22.356]},
+                                                {name: '九龙湾商圈', geoCoord: [114.25, 22.308]},
+                                                {name: '沙田商圈', geoCoord: [114.21, 22.39]}
+                                            ]
+                                        },
+                                        markLine: {
+                                            smooth: true,    //　线有弯度
+                                            clickable: false,
+                                            symbolSize: 3,
+                                            itemStyle: {
+                                                normal: {
+                                                    color: 'rgba(0, 0, 0, 0.3)',
+                                                    label: {
+                                                        show: true,
+                                                        formatter: function (params) {
+                                                            // params contain two points in a line
+                                                            if(params.name != null){
+                                                                var s = params.name;
+                                                                return s.slice(0, s.length-2);   // leave the ":" out
+                                                            }
+                                                            else
+                                                                return '';
+                                                            console.log(params.name)
+                                                        },    // 支持方法回调
+                                                        textStyle: {
+                                                            fontSize: 18,
+                                                            fontWeight: 'normal',
+                                                            color: basic_ftcolor
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            effect: {
+                                                show: true,
+                                                scaleSize: 1.5,
+                                                color: shine_red
+                                            },
+                                            data: [
+                                                [
+                                                    {name: '迪士尼商圈', geoCoord: [113.95, 22.3]},
+                                                    {name: '', geoCoord: [113.87, 22.26]}
+                                                ],
+                                                [
+                                                    {name: '铜锣湾商圈', geoCoord: [114.18, 22.276]},
+                                                    {name: '', geoCoord: [114.03, 22.18]}
+                                                ],
+                                                [
+                                                    {name: '元朗商圈', geoCoord: [114.02, 22.448]},
+                                                    {name: '', geoCoord: [113.92, 22.49]}
+                                                ],
+                                                [
+                                                    {name: '上水商圈', geoCoord: [114.1435, 22.5]},
+                                                    {name: '', geoCoord: [114.33, 22.53]}
+                                                ],
+                                                [
+                                                    {name: '旺角商圈', geoCoord: [114.193, 22.317]},
+                                                    {name: '', geoCoord: [114.36, 22.213]}
+                                                ],
+                                                [
+                                                    {name: '葵湾商圈', geoCoord: [114.13, 22.356]},
+                                                    {name: '', geoCoord: [113.87, 22.40]}
+                                                ],
+                                                [
+                                                    {name: '九龙湾商圈', geoCoord: [114.25, 22.308]},
+                                                    {name: '', geoCoord: [114.34, 22.291]}
+                                                ],
+                                                [
+                                                    {name: '沙田商圈', geoCoord: [114.21, 22.39]},
+                                                    {name: '', geoCoord: [114.41, 22.40]}
+                                                ]
+
+                                            ]
+                                        }
+                                    }
+
+                                ]
+                            };
+
+                            map.setOption(map_option);
+
+                        });
+                    };
+
+                    updateMapData(local_map_data);
+
+                }();
+
+                // 条形图 和 饼图 共用一个接口 也使用本地数据初始化
+                var initBarAndPie = function () {
+
+                    var bar = echarts.init(document.getElementById('bar'));
+                    var pie = echarts.init(document.getElementById('pie'));
+
+                    updateBarAndPieData = function (datasource) {
+
+                        $.get(datasource, function (datajson) {
+
+                            // 先销毁
+                            bar.dispose();
+                            pie.dispose();
+
+                            // 再新建
+                            bar = echarts.init(document.getElementById('bar'));
+                            pie = echarts.init(document.getElementById('pie'));
+
+                            var data = datajson["data"];
+                            var circle_stays = data["hkCircleAverstayTimeList"];
+                            var circle_users = data["hkUserRatesList"];
+
+                            var bar_values = new Array();
+                            for ( var i in circle_stays ){
+                                var circle_stay = circle_stays[i];
+                                var sec = circle_stay["circleAverstayTime"];   // mili second
+                                var value = sec / (3600 * 1000);
+                                bar_values.push(value.toFixed(1));
+                            }
+
+                            var pie_values = new Array();
+                            for ( var i in circle_users ){
+                                var circle_user = circle_users[i];
+                                var value = circle_user["usersSum"];
+                                pie_values.push(value);
+                            }
+
+                            var bar_data = [
+                                {name: '迪士尼', value: bar_values[0]},
+                                {name: '铜锣湾', value: bar_values[1]},
+                                {name: '元朗', value: bar_values[2]},
+                                {name: '上水', value: bar_values[3]},
+                                {name: '旺角', value: bar_values[4]},
+                                {name: '葵湾', value: bar_values[5]},
+                                {name: '九龙湾', value: bar_values[6]},
+                                {name: '沙田', value: bar_values[7]}
+                            ];
+                            var pie_data = [
+                                {name: '迪士尼', value: pie_values[0]},
+                                {name: '铜锣湾', value: pie_values[1]},
+                                {name: '元朗', value: pie_values[2]},
+                                {name: '上水', value: pie_values[3]},
+                                {name: '旺角', value: pie_values[4]},
+                                {name: '葵湾', value: pie_values[5]},
+                                {name: '九龙湾', value: pie_values[6]},
+                                {name: '沙田', value: pie_values[7]}
+                            ];
+
+                            var bar_option = {
+
+                                backgroundColor: module_bgcolor,
+
+                                // 取消网格(只是上下边框)
+                                grid: {
+                                    borderColor: 'rgba(0,0,0,0)'
+                                },
+
+                                title: {
+                                    text: '商圈停留时长',
+                                    x: 370,
+                                    y: 20,
+                                    textStyle : {
+                                        color : title_ftcolor,
+                                        fontFamily : '微软雅黑',
+                                        fontSize : title_font,
+                                    }
+                                },
+
+                                xAxis : [
+                                    {
+                                        type : 'value',
+                                        axisLine: {
+                                            show: false,    // 坐标轴
+                                            lineStyle: {
+                                                color: '#aaa'
+                                            }
+                                        },
+                                        splitLine: {
+                                            show: false   // 网格
+                                        },
+                                        axisLabel: {
+                                            show: false,
+                                            textStyle: {
+                                                color: basic_ftcolor
+                                            }
+                                        }
+                                    }
+                                ],
+                                yAxis : [
+                                    {
+                                        type : 'category',
+                                        position: 'left',
+                                        axisLine: {
+                                            show: false,
+                                            lineStyle: {
+                                                color: '#aaa'
+                                            }
+                                        },
+                                        splitLine: {show: false},
+                                        axisTick : {show: false},
+                                        axisLabel: { show: false,
+                                            textStyle: {
+                                                color: basic_ftcolor,
+                                                fontWeight: 'normal'
+                                            }
+                                        },
+                                        data: [ '迪士尼', '铜锣湾', '元朗','上水', '旺角', '葵湾', '九龙湾', '沙田' ],
+                                    }
+                                ],
+                                series : [
+                                    {
+                                        name:'商圈停留时长',
+                                        type:'bar',
+                                        barWidth : 7,
+                                        itemStyle: {
+                                            normal: {
+                                                color: basic_yellow,
+                                                label : {
+                                                    show: true,
+                                                    formatter: '{c}h  ({b})',
+                                                    textStyle: {
+                                                        color: basic_ftcolor
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        data: bar_data
+                                    }
+                                ]
+                            };
+
+                            var pie_option = {
+
+                                backgroundColor: module_bgcolor,
+
+                                color: [
+                                    'rgba(255, 255, 51, 0.8)',
+                                    'rgba(255, 0, 0, 0.5)'
+                                ],
+                                title: {
+                                    text: '商圈人流比',
+                                    x: 'center',
+                                    y: 'center',
+                                    itemGap: 20,
+                                    textStyle : {
+                                        color : title_ftcolor,
+                                        fontFamily : '微软雅黑',
+                                        fontSize : title_font
+                                    }
+                                },
+
+                                calculable : false,
+                                series : [
+                                    {
+                                        name:'商圈占比',
+                                        type:'pie',
+                                        radius : [70, 85],
+                                        itemStyle: {
+                                            normal : {
+                                                label: {
+                                                    formatter: "{b}",
+                                                    textStyle: {
+                                                        color: basic_ftcolor
+                                                    }
+                                                },
+                                                labelLine: {
+                                                    show: true,
+                                                    lineStyle: {
+                                                        color: basic_ftcolor
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        data: pie_data
+                                    }
+                                ]
+                            };
+
+                            bar.setOption(bar_option);
+                            pie.setOption(pie_option);
+
+                        });
+
+                    };
+
+                    updateBarAndPieData(local_bar_pie_data);
+
+                }();
+
+                // 总人数 与 总流量 标签
+                var initLabel = function () {
+
+                    updateLabel = function () {
+
+                        // 可以得到香港前一天在线总人数，实时用量
+                        var today = new Date();
+                        var yesterday = new Date();
+                        yesterday.setDate(today.getDate()-1);
+
+                        yesterday = yesterday.toISOString().slice(0,10);
+                        today = today.toISOString().slice(0,10);
+
+                        var label_url = "http://183.3.223.162:28001/uhuibao/api/bigdata/communication/dimension_data?startDate="
+                            + yesterday + " 00:00:00&endDate=" + today + " 00:00:00&dateType=2&area=true&agents=false&product=false";
+
+                        $.get(label_url, function (datajson) {
+
+                            data = datajson["data"];
+                            console.log(data);
+
+                            var users = data["在线用户"]["content"];
+                            var user = users[0]["value"];   // user amount of hk
+                            console.log(user);
+
+                            var flows = data["用量"]["content"];
+                            var flow = flows[0]["value"];    // flow amount of hk
+                            console.log(flow);
+
+                            $("#label1 > h2").html(user);
+                            $("#label2 > h2").html(flow);
+                        });
+
+                    };
+                    updateLabel();
+
+                }();
+
+            };
+
+            var updateCharts = function () {
+
+                updateMapData(map_url);
+                updateBarAndPieData(bar_pie_url);
+                updateLabel();
+                //alert("updating");
+
+            };
+
+
+            var startFromHere = function () {
+
+                initCharts();
+
+                var autoUpdate = setInterval(updateCharts, update_interval);
+
+            }();
+
+        }
+    );
+
+
+</script>
+
+</body>
+</html>
+
+
+
+
