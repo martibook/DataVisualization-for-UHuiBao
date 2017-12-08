@@ -15,5 +15,8 @@ HK_online_data_visualization.html
 
 1. label1 与 label2 两个 div 在更新时没有动画效果, 可以添加
 
+![ 预览效果 preview ](https://github.com/MartiBook/DataVisualization-for-UHuiBao/tree/master/demo_images/only_one.gif)
+
+
 
 
