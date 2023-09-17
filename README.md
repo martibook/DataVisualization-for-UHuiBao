@@ -3,7 +3,7 @@
 
 这是为游惠宝公司设计的数据屏幕，使用 JavaScript 手动实现
 
-A Data Dashboard implemented manually using JavaScript for Company UHuiBao
+A Data dashboard implemented manually using JavaScript for Company UHuiBao
 
 
 
